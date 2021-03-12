@@ -1,63 +1,43 @@
-package scache
-
+package dcache
 import (
-	"container/list"
-	"fmt"
+	"github.com/qkunzh/dcache/lru"
+	"sync"
 )
 
 type Cache struct {
-	capacity int
-	used     int
-	list     *list.List
-	table    map[string]*list.Element
+	cache *lru.Cache
+	cap int
+	lock sync.Mutex
 }
-type entry struct {
-	key   string
-	value Value
-}
-type Value interface {
-	Len() int
-}
-
-func New(capacity int) *Cache {
+func New(cap int) *Cache {
 	return &Cache{
-		capacity: capacity,
-		used:     0,
-		list:     list.New(),
-		table:    make(map[string]*list.Element),
+		cache:lru.New(cap),
+		cap:cap,
 	}
 }
-
-func (this *Cache) Add(key string, value Value) {
-	bytes := value.Len()
-	for bytes+this.used >= this.capacity {
-		end := this.list.Back()
-		entry := end.Value.(*entry)
-		key, value := entry.key, entry.value
-		this.used += value.Len()
-		this.list.Remove(end)
-		delete(this.table, key)
-	}
-	entry := entry{key, value}
-	ele := this.list.PushFront(&entry)
-	this.used += len(key) + value.Len()
-	this.table[key] = ele
-}
-
-func (this *Cache) Get(key string) (Value, bool) {
-	ele, ok := this.table[key]
+func (this *Cache) Get(key string)(ByteView,bool) {
+	this.lock.Lock()
+	defer this.lock.Unlock()
+	value,ok := this.cache.Get(key)
 	if ok {
-		this.list.MoveToFront(ele)
-		entry := ele.Value.(*entry)
-		return entry.value, true
-	} else {
-		return nil, false
+		bv,suc := value.(ByteView)
+		if suc {
+			return bv,true
+		}
 	}
+	return ByteView{},false
+}
+func (this *Cache) Add(key string, bv ByteView) {
+	this.lock.Lock()
+	defer this.lock.Unlock()
+	this.cache.Add(key,bv)
 }
 func (this *Cache) Delete(key string) {
-	ele, ok := this.table[key]
-	if ok {
-		this.list.Remove(ele)
-		delete(this.table, key)
+	_, ok := this.cache.Get(key)
+	if !ok {
+		return
 	}
+	this.lock.Lock()
+	defer this.lock.Unlock()
+	this.cache.Delete(key)
 }
